@@ -78,6 +78,7 @@ def get_single_block_row_attention(block_id,
       selected_random_blokcs.append(perm_block[i])
     if len(selected_random_blokcs) == num_rand_blocks:
       break
+
   return np.array(selected_random_blokcs, dtype=np.int32)
 
 
@@ -211,6 +212,7 @@ def bigbird_block_rand_mask_with_head(from_seq_length,
   for nh in range(num_heads):
     rand_attn[nh] = rand_attn[nh][global_block_top:num_blocks -
                                   global_block_bottom, :]
+
   return rand_attn
 
 
@@ -327,19 +329,21 @@ def full_bigbird_mask(from_seq_length,
     rand_attn = bigbird_block_rand_mask(MAX_SEQ_LEN, MAX_SEQ_LEN,
                                         from_block_size, to_block_size,
                                         num_rand_blocks, focus)
-
   attn_mask = np.zeros((MAX_SEQ_LEN, MAX_SEQ_LEN), dtype=np.int32)
   for i in range(1, (MAX_SEQ_LEN // from_block_size) - 1):
     attn_mask[(i) * from_block_size:(i + 1) * from_block_size,
               (i - 1) * to_block_size:(i + 2) * to_block_size] = 1
-    for j in rand_attn[i - 1, :]:
-      attn_mask[i * from_block_size:(i + 1) * from_block_size,
-                j * to_block_size:(j + 1) * to_block_size] = 1
+    if i <= rand_attn.shape[0]:
+      for j in rand_attn[i - 1, :]:
+        attn_mask[i * from_block_size:(i + 1) * from_block_size,
+                  j * to_block_size:(j + 1) * to_block_size] = 1
 
   attn_mask[:from_block_size, :] = 1
   attn_mask[:, :to_block_size] = 1
-  attn_mask[:, -to_block_size:] = 1
-  attn_mask[-from_block_size:, :] = 1
+  attn_mask[:, to_seq_length-to_block_size:to_seq_length] = 1
+  attn_mask[from_seq_length-from_block_size:from_seq_length, :] = 1
+  # attn_mask[:, -to_block_size:] = 1
+  # attn_mask[-from_block_size:, :] = 1
   clipped_attn_mask = attn_mask[:from_seq_length, :to_seq_length]
   return np.array(clipped_attn_mask, dtype=bool)
 
@@ -717,6 +721,7 @@ def bigbird_block_sparse_attention(query_layer,
   second_rand_pad = tf.concat(
       [tf.ones([b, h, wm, 4 * wn], dtype=tf.float32), rand_mask[:, :, 0]], 3)
   second_product = tf.multiply(second_product, 1.0 / np.sqrt(d))
+
   second_product += (1.0 -
                      tf.minimum(second_seq_pad, second_rand_pad)) * -10000.0
   second_attn_weights = tf.nn.softmax(second_product)  # [b , h, wm, (4+r)*wn]
