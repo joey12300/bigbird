@@ -126,7 +126,8 @@ def assert_rank(tensor, expected_rank, name=None):
 
 def create_initializer(initializer_range=0.02):
   """Creates a `truncated_normal_initializer` with the given range."""
-  return tf.compat.v1.truncated_normal_initializer(stddev=initializer_range)
+  #return tf.compat.v1.truncated_normal_initializer(stddev=initializer_range)
+  return tf.keras.initializers.Constant(value=initializer_range)
 
 
 class Dense3dLayer(tf.compat.v1.layers.Layer):
