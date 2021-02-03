@@ -139,7 +139,8 @@ class PrenormEncoderLayer(tf.compat.v1.layers.Layer):
 
     with tf.compat.v1.variable_scope("attention"):
       with tf.compat.v1.variable_scope("self") as sc:
-        normalized_layer_input = self.first_layer_norm(layer_input)
+        #normalized_layer_input = self.first_layer_norm(layer_input)
+        normalized_layer_input = layer_input
         attention_output = self.attn_layer(
             normalized_layer_input, normalized_layer_input,
             attention_mask, band_mask, from_mask, to_mask,
@@ -156,7 +157,8 @@ class PrenormEncoderLayer(tf.compat.v1.layers.Layer):
 
     # The activation is only applied to the "intermediate" hidden layer.
     with tf.compat.v1.variable_scope("intermediate"):
-      normalized_attention_output = self.second_layer_norm(attention_output)
+      #normalized_attention_output = self.second_layer_norm(attention_output)
+      normalized_attention_output = attention_output
       intermediate_output = self.expand_layer(normalized_attention_output)
 
     # Down-project back to `hidden_size` then add the residual.
@@ -289,7 +291,7 @@ class PostnormEncoderLayer(tf.compat.v1.layers.Layer):
 
     with tf.compat.v1.variable_scope("attention"):
       with tf.compat.v1.variable_scope("self") as sc:
-        attention_output = self.attn_layer(
+        attention_output, qkv = self.attn_layer(
             layer_input, layer_input,
             attention_mask, band_mask, from_mask, to_mask,
             input_blocked_mask, input_blocked_mask, training, scope=sc)
@@ -301,7 +303,8 @@ class PostnormEncoderLayer(tf.compat.v1.layers.Layer):
         attention_output = utils.dropout(attention_output,
                                          self.hidden_dropout_prob,
                                          training)
-        attention_output = self.first_layer_norm(attention_output + layer_input)
+        #attention_output = self.first_layer_norm(attention_output + layer_input)
+        attention_output = attention_output + layer_input
 
     # The activation is only applied to the "intermediate" hidden layer.
     with tf.compat.v1.variable_scope("intermediate"):
@@ -313,8 +316,9 @@ class PostnormEncoderLayer(tf.compat.v1.layers.Layer):
       layer_output = utils.dropout(layer_output,
                                    self.hidden_dropout_prob,
                                    training)
-      layer_output = self.second_layer_norm(layer_output + attention_output)
-    return layer_output
+      #layer_output = self.second_layer_norm(layer_output + attention_output)
+      layer_output = attention_output + layer_output
+    return layer_output, qkv
 
 
 class EncoderStack(tf.compat.v1.layers.Layer):
@@ -411,16 +415,16 @@ class EncoderStack(tf.compat.v1.layers.Layer):
     # if self.params["use_gradient_checkpointing"]:
     #   encoder_layer = recompute_gradient(encoder_layer)
 
-    if self.params["norm_type"] == "postnorm":
-      encoder_inputs = self.layer_norm(encoder_inputs)
+    # if self.params["norm_type"] == "postnorm":
+    #   encoder_inputs = self.layer_norm(encoder_inputs)
 
     layer_output = encoder_inputs
     for layer in self.encoder_layers:
-      layer_output = layer(
+      layer_output, qkv = layer(
           layer_output, attention_mask, band_mask,
           encoder_from_mask, encoder_to_mask, blocked_encoder_mask, training)
 
-    if self.params["norm_type"] == "prenorm":
-      layer_output = self.layer_norm(layer_output)
+    # if self.params["norm_type"] == "prenorm":
+    #   layer_output = self.layer_norm(layer_output)
 
-    return layer_output
+    return layer_output,qkv

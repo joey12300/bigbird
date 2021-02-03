@@ -27,7 +27,6 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_text as tft
 
-
 FLAGS = flags.FLAGS
 
 ## Required parameters
@@ -147,7 +146,7 @@ def input_fn_builder(data_dir, vocab_model_file, max_encoder_length,
     split = "train" if is_training else "test"
     if "tfds://" == data_dir[:7]:
       d = tfds.load(data_dir[7:], split=split,
-                    shuffle_files=is_training,
+                    shuffle_files=False,
                     data_dir=tmp_dir)
     else:
       input_files = tf.io.gfile.glob(
@@ -165,17 +164,17 @@ def input_fn_builder(data_dir, vocab_model_file, max_encoder_length,
               deterministic=is_training)
 
     # Tokenize and batch dataset by sentencepiece
-    if is_training:
-      # Classification datasets are usually small
-      # and interleaving files may not be effective.
-      # So to ensure different data in a multi-host setup
-      # we explicitly shard the dataset by host id.
-      if tpu_context:  # ensuring different data in multi-host setup
-        d = d.shard(tpu_context.num_hosts, tpu_context.current_host)
-        seed = tpu_context.current_host
-      d = d.shuffle(buffer_size=10000, seed=seed,
-                    reshuffle_each_iteration=True)
-      d = d.repeat()
+    # if is_training:
+    #   # Classification datasets are usually small
+    #   # and interleaving files may not be effective.
+    #   # So to ensure different data in a multi-host setup
+    #   # we explicitly shard the dataset by host id.
+    #   if tpu_context:  # ensuring different data in multi-host setup
+    #     d = d.shard(tpu_context.num_hosts, tpu_context.current_host)
+    #     seed = tpu_context.current_host
+    #   # d = d.shuffle(buffer_size=10000, seed=seed,
+    #   #               reshuffle_each_iteration=True)
+    #   d = d.repeat()
     d = d.padded_batch(batch_size, ([max_encoder_length], []),
                        drop_remainder=True)  # For static shape
     return d
@@ -331,12 +330,12 @@ class ClassifierLossLayer(tf.compat.v1.layers.Layer):
   def call(self, input_tensor, labels=None, training=None):
     last_dim = utils.get_shape_list(input_tensor)[-1]
     input_tensor = utils.dropout(input_tensor, self.dropout_prob, training)
-
     if self.w is None:
       self.w = tf.compat.v1.get_variable(
           name="kernel",
           shape=[last_dim, self.num_labels],
-          initializer=self.initializer)
+          initializer=tf.keras.initializers.Constant(value=0.5))
+      
       self.initializer = None
       self._trainable_weights.append(self.w)
     logits = tf.matmul(input_tensor, self.w)
@@ -349,7 +348,6 @@ class ClassifierLossLayer(tf.compat.v1.layers.Layer):
             initializer=tf.zeros_initializer)
         self._trainable_weights.append(self.b)
       logits = tf.nn.bias_add(logits, self.b)
-
     log_probs = tf.nn.log_softmax(logits, axis=-1)
     if labels is not None:
       one_hot_labels = tf.one_hot(labels, depth=self.num_labels,
@@ -359,7 +357,7 @@ class ClassifierLossLayer(tf.compat.v1.layers.Layer):
     else:
       loss = tf.constant(0.0)
 
-    return loss, log_probs
+    return loss, log_probs, logits
 
 
 def main(_):

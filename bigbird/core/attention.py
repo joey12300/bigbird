@@ -18,7 +18,8 @@ from absl import logging
 from bigbird.core import utils
 import numpy as np
 import tensorflow.compat.v2 as tf
-
+import tensorflow
+import sys
 
 MAX_SEQ_LEN = 4096
 
@@ -560,7 +561,6 @@ def bigbird_simulated_attention(query_layer,
                                  size_per_head,
                                  attention_probs_dropout_prob=0.0)
 
-
 def bigbird_block_sparse_attention(query_layer,
                                    key_layer,
                                    value_layer,
@@ -685,13 +685,13 @@ def bigbird_block_sparse_attention(query_layer,
   blocked_query_matrix = tf.reshape(query_layer, (b, h, m // wm, wm, -1))
   blocked_key_matrix = tf.reshape(key_layer, (b, h, n // wn, wn, -1))
   blocked_value_matrix = tf.reshape(value_layer, (b, h, n // wn, wn, -1))
-  gathered_key = tf.reshape(
-      tf.gather(blocked_key_matrix, rand_attn, batch_dims=2, name="gather_key"),
-      (b, h, m // wm - 2, r * wn, -1))  # [b, h, n//wn-2, r, wn, -1]
-  gathered_value = tf.reshape(
-      tf.gather(
-          blocked_value_matrix, rand_attn, batch_dims=2, name="gather_value"),
-      (b, h, m // wm - 2, r * wn, -1))  # [b, h, n//wn-2, r, wn, -1]
+  # gathered_key = tf.reshape(
+  #     tf.gather(blocked_key_matrix, rand_attn, batch_dims=2, name="gather_key"),
+  #     (b, h, m // wm - 2, r * wn, -1))  # [b, h, n//wn-2, r, wn, -1]
+  # gathered_value = tf.reshape(
+  #     tf.gather(
+  #         blocked_value_matrix, rand_attn, batch_dims=2, name="gather_value"),
+  #     (b, h, m // wm - 2, r * wn, -1))  # [b, h, n//wn-2, r, wn, -1]
 
   first_product = tf.einsum(
       "BHQD,BHKD->BHQK", blocked_query_matrix[:, :, 0],
@@ -703,27 +703,36 @@ def bigbird_block_sparse_attention(query_layer,
       "BHQK,BHKD->BHQD", first_attn_weights,
       value_layer)  # [b, h, wm, n] x [b, h, n, -1] ==> [b, h, wm, -1]
   first_context_layer = tf.expand_dims(first_context_layer, 2)
-
+  
+  # second_key_mat = tf.concat([
+  #     blocked_key_matrix[:, :, 0], blocked_key_matrix[:, :, 1],
+  #     blocked_key_matrix[:, :, 2], blocked_key_matrix[:, :, -1],
+  #     gathered_key[:, :, 0]], 2)  # [b, h, (4+r)*wn, -1]
+  # second_value_mat = tf.concat([
+  #     blocked_value_matrix[:, :, 0], blocked_value_matrix[:, :, 1],
+  #     blocked_value_matrix[:, :, 2], blocked_value_matrix[:, :, -1],
+  #     gathered_value[:, :, 0]], 2)  # [b, h, (4+r)*wn, -1]
   second_key_mat = tf.concat([
       blocked_key_matrix[:, :, 0], blocked_key_matrix[:, :, 1],
-      blocked_key_matrix[:, :, 2], blocked_key_matrix[:, :, -1],
-      gathered_key[:, :, 0]], 2)  # [b, h, (4+r)*wn, -1]
+      blocked_key_matrix[:, :, 2], blocked_key_matrix[:, :, -1]], 2)  # [b, h, 4*wn, -1]
   second_value_mat = tf.concat([
       blocked_value_matrix[:, :, 0], blocked_value_matrix[:, :, 1],
-      blocked_value_matrix[:, :, 2], blocked_value_matrix[:, :, -1],
-      gathered_value[:, :, 0]], 2)  # [b, h, (4+r)*wn, -1]
+      blocked_value_matrix[:, :, 2], blocked_value_matrix[:, :, -1]], 2)  # [b, h, 4*wn, -1]
   second_product = tf.einsum(
       "BHQD,BHKD->BHQK", blocked_query_matrix[:, :, 1], second_key_mat
   )  # [b, h, wm, -1] x [b, h, (4+r)*wn, -1] ==> [b, h, wm, (4+r)*wn]
+  # second_seq_pad = tf.concat([
+  #     to_mask[:, :, :, :3 * wn], to_mask[:, :, :, -wn:],
+  #     tf.ones([b, 1, 1, r * wn], dtype=tf.float32)], 3)
   second_seq_pad = tf.concat([
-      to_mask[:, :, :, :3 * wn], to_mask[:, :, :, -wn:],
-      tf.ones([b, 1, 1, r * wn], dtype=tf.float32)], 3)
-  second_rand_pad = tf.concat(
-      [tf.ones([b, h, wm, 4 * wn], dtype=tf.float32), rand_mask[:, :, 0]], 3)
+    to_mask[:, :, :, :3 * wn], to_mask[:, :, :, -wn:]], 3)
+  # second_rand_pad = tf.concat(
+  #     [tf.ones([b, h, wm, 4 * wn], dtype=tf.float32), rand_mask[:, :, 0]], 3)
   second_product = tf.multiply(second_product, 1.0 / np.sqrt(d))
-
-  second_product += (1.0 -
-                     tf.minimum(second_seq_pad, second_rand_pad)) * -10000.0
+  
+  # second_product += (1.0 -
+  #                    tf.minimum(second_seq_pad, second_rand_pad)) * -10000.0
+  second_product += (1.0 - second_seq_pad) * -10000.0
   second_attn_weights = tf.nn.softmax(second_product)  # [b , h, wm, (4+r)*wn]
   second_context_layer = tf.einsum(
       "BHQK,BHKD->BHQD", second_attn_weights, second_value_mat
@@ -742,11 +751,11 @@ def bigbird_block_sparse_attention(query_layer,
   )  # [b, h, m//wm-4, wm, -1] x [b, h, m//wm-4, 3*wn, -1]
   #     ==> [b, h, m//wm-4, wm, 3*wn]
   inner_band_product = tf.multiply(inner_band_product, 1.0 / np.sqrt(d))
-  rand_band_product = tf.einsum(
-      "BHLQD,BHLKD->BHLQK", middle_query_matrix, gathered_key[:, :, 1:-1]
-  )  # [b, h, m//wm-4, wm, -1] x [b, h, m//wm-4, r*wn, -1]
-  #     ==> [b, h, m//wm-4, wm, r*wn]
-  rand_band_product = tf.multiply(rand_band_product, 1.0 / np.sqrt(d))
+  # rand_band_product = tf.einsum(
+  #     "BHLQD,BHLKD->BHLQK", middle_query_matrix, gathered_key[:, :, 1:-1]
+  # )  # [b, h, m//wm-4, wm, -1] x [b, h, m//wm-4, r*wn, -1]
+  # #     ==> [b, h, m//wm-4, wm, r*wn]
+  # rand_band_product = tf.multiply(rand_band_product, 1.0 / np.sqrt(d))
   first_band_product = tf.einsum(
       "BHLQD,BHKD->BHLQK", middle_query_matrix, blocked_key_matrix[:, :, 0]
   )  # [b, h, m//wm-4, wm, -1] x [b, h, wn, -1] ==> [b, h, m//wm-4, wm, wn]
@@ -760,20 +769,23 @@ def bigbird_block_sparse_attention(query_layer,
       1.0 - tf.expand_dims(to_mask[:, :, :, :wn], 3)) * -10000.0
   last_band_product += (
       1.0 - tf.expand_dims(to_mask[:, :, :, -wn:], 3)) * -10000.0
-  rand_band_product += (1.0 - rand_mask[:, :, 1:-1]) * -10000.0
+  # rand_band_product += (1.0 - rand_mask[:, :, 1:-1]) * -10000.0
+  # band_product = tf.concat([
+  #   first_band_product, inner_band_product, rand_band_product,
+  #   last_band_product], -1)  # [b, h, m//wm-4, wm, (5+r)*wn]
   band_product = tf.concat([
-      first_band_product, inner_band_product, rand_band_product,
-      last_band_product], -1)  # [b, h, m//wm-4, wm, (5+r)*wn]
+      first_band_product, inner_band_product, last_band_product], -1)  # [b, h, m//wm-4, wm, 5*wn]
   attn_weights = tf.nn.softmax(band_product)  # [b, h, m//wm-4, wm, (5+r)*wn]
   context_layer = tf.einsum(
       "BHLQK,BHLKD->BHLQD", attn_weights[:, :, :, :, wn:4 * wn],
       exp_blocked_value_matrix
   )  # [b, h, m//wm-4, wm, 3*wn] x [b, h, m//wm-4, 3*wn, -1]
   #     ==> [b, h, m//wm-4, wm, -1]
-  context_layer += tf.einsum(
-      "BHLQK,BHLKD->BHLQD", attn_weights[:, :, :, :, 4 * wn:-wn],
-      gathered_value[:, :, 1:-1]
-  )  # [b, h, m//wm-4, wm, r*wn] x [b, h, m//wm-4, r*wn, -1]
+  # context_layer += tf.einsum(
+  #     "BHLQK,BHLKD->BHLQD", attn_weights[:, :, :, :, 4 * wn:-wn],
+  #     gathered_value[:, :, 1:-1]
+  # )  # [b, h, m//wm-4, wm, r*wn] x [b, h, m//wm-4, r*wn, -1]
+
   #     ==> [b, h, m//wm-4, wm, -1]
   context_layer += tf.einsum(
       "BHLQK,BHKD->BHLQD", attn_weights[:, :, :, :, :wn],
@@ -783,26 +795,34 @@ def bigbird_block_sparse_attention(query_layer,
       "BHLQK,BHKD->BHLQD", attn_weights[:, :, :, :, -wn:],
       blocked_value_matrix[:, :, -1]
   )  # [b, h, m//wm-4, wm, wn] x [b, h, wn, -1] ==> [b, h, m//wm-4, wm, -1]
-
+  # second_last_key_mat = tf.concat([
+  #     blocked_key_matrix[:, :, 0], blocked_key_matrix[:, :, -3],
+  #     blocked_key_matrix[:, :, -2], blocked_key_matrix[:, :, -1],
+  #     gathered_key[:, :, -1]], 2)  # [b, h, (4+r)*wn, -1]
+  # second_last_value_mat = tf.concat([
+  #     blocked_value_matrix[:, :, 0], blocked_value_matrix[:, :, -3],
+  #     blocked_value_matrix[:, :, -2], blocked_value_matrix[:, :, -1],
+  #     gathered_value[:, :, -1]], 2)  # [b, h, (4+r)*wn, -1]
   second_last_key_mat = tf.concat([
       blocked_key_matrix[:, :, 0], blocked_key_matrix[:, :, -3],
-      blocked_key_matrix[:, :, -2], blocked_key_matrix[:, :, -1],
-      gathered_key[:, :, -1]], 2)  # [b, h, (4+r)*wn, -1]
+      blocked_key_matrix[:, :, -2], blocked_key_matrix[:, :, -1]], 2)  # [b, h, (4+r)*wn, -1]
   second_last_value_mat = tf.concat([
       blocked_value_matrix[:, :, 0], blocked_value_matrix[:, :, -3],
-      blocked_value_matrix[:, :, -2], blocked_value_matrix[:, :, -1],
-      gathered_value[:, :, -1]], 2)  # [b, h, (4+r)*wn, -1]
+      blocked_value_matrix[:, :, -2], blocked_value_matrix[:, :, -1]], 2)  # [b, h, (4+r)*wn, -1]
   second_last_product = tf.einsum(
       "BHQD,BHKD->BHQK", blocked_query_matrix[:, :, -2], second_last_key_mat
   )  # [b, h, wm, -1] x [b, h, (4+r)*wn, -1] ==> [b, h, wm, (4+r)*wn]
+  # second_last_seq_pad = tf.concat([
+  #     to_mask[:, :, :, :wn], to_mask[:, :, :, -3 * wn:],
+  #     tf.ones([b, 1, 1, r * wn], dtype=tf.float32)], 3)
   second_last_seq_pad = tf.concat([
-      to_mask[:, :, :, :wn], to_mask[:, :, :, -3 * wn:],
-      tf.ones([b, 1, 1, r * wn], dtype=tf.float32)], 3)
-  second_last_rand_pad = tf.concat(
-      [tf.ones([b, h, wm, 4 * wn], dtype=tf.float32), rand_mask[:, :, -1]], 3)
+      to_mask[:, :, :, :wn], to_mask[:, :, :, -3 * wn:]], 3)
+  # second_last_rand_pad = tf.concat(
+  #     [tf.ones([b, h, wm, 4 * wn], dtype=tf.float32), rand_mask[:, :, -1]], 3)
   second_last_product = tf.multiply(second_last_product, 1.0 / np.sqrt(d))
-  second_last_product += (
-      1.0 - tf.minimum(second_last_seq_pad, second_last_rand_pad)) * -10000.0
+  # second_last_product += (
+  #     1.0 - tf.minimum(second_last_seq_pad, second_last_rand_pad)) * -10000.0
+  second_last_product += (1.0 - second_last_seq_pad) * -10000.0
   second_last_attn_weights = tf.nn.softmax(
       second_last_product)  # [b, h, wm, (4+r)*wn]
   second_last_context_layer = tf.einsum(
@@ -931,7 +951,7 @@ class MultiHeadedAttentionLayer(tf.compat.v1.layers.Layer):
                  self.value_layer.trainable_weights)
     self._trainable_weights = list({v.name: v for v in tvar_list}.values())
     return self._trainable_weights
-
+  
   def call(self,
            from_tensor,
            to_tensor,
@@ -1035,5 +1055,4 @@ class MultiHeadedAttentionLayer(tf.compat.v1.layers.Layer):
         query, key, value, attention_mask,
         band_mask, from_mask, to_mask, from_blocked_mask, to_blocked_mask,
         batch_size, from_seq_length, to_seq_length, training)
-
-    return contextual_output
+    return contextual_output, [query, key, value] 

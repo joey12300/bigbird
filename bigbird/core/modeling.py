@@ -117,7 +117,7 @@ class BertModel(tf.compat.v1.layers.Layer):
                           tf.ones_like(input_ids), tf.zeros_like(input_ids))
 
     # Run the stacked transformer.
-    sequence_output = self.encoder(embedding_output, input_mask, training)
+    sequence_output, qkv = self.encoder(embedding_output, input_mask, training)
 
     # The "pooler" converts the encoded sequence tensor of shape
     # [batch_size, seq_length, hidden_size] to a tensor of shape
@@ -129,7 +129,7 @@ class BertModel(tf.compat.v1.layers.Layer):
     # to the first token. We assume that this has been pre-trained
     pooled_output = self.pooler(first_token_tensor)
 
-    return sequence_output, pooled_output
+    return sequence_output, pooled_output, qkv
 
 
 class TransformerModel(tf.compat.v1.layers.Layer):
