@@ -277,7 +277,7 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
     split = "train" if is_training else "test"
     if "tfds://" == data_dir[:7]:
       d = tfds.load(data_dir[7:], split=split,
-                    shuffle_files=is_training,
+                    shuffle_files=False,
                     data_dir=tmp_dir)
     else:
       input_files = tf.io.gfile.glob(
@@ -285,17 +285,18 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
 
       # For training, we want a lot of parallel reading and shuffling.
       # For eval, we want no shuffling and parallel reading doesn't matter.
-      if is_training:
-        d = tf.data.Dataset.from_tensor_slices(tf.constant(input_files))
-        d = d.shuffle(buffer_size=len(input_files))
+      d = tf.data.TFRecordDataset(input_files)
+      # if is_training:
+      #   d = tf.data.Dataset.from_tensor_slices(tf.constant(input_files))
+      #   d = d.shuffle(buffer_size=len(input_files))
 
-        # Non deterministic mode means that the interleaving is not exact.
-        # This adds even more randomness to the training pipeline.
-        d = d.interleave(tf.data.TFRecordDataset,
-                         deterministic=False,
-                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
-      else:
-        d = tf.data.TFRecordDataset(input_files)
+      #   # Non deterministic mode means that the interleaving is not exact.
+      #   # This adds even more randomness to the training pipeline.
+      #   d = d.interleave(tf.data.TFRecordDataset,
+      #                    deterministic=False,
+      #                    num_parallel_calls=tf.data.experimental.AUTOTUNE)
+      # else:
+      #   d = tf.data.TFRecordDataset(input_files)
 
     if preprocessed_data:
       d = d.map(_decode_record,
@@ -304,9 +305,9 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
       d = d.map(do_masking,
                 num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    if is_training:
-      d = d.shuffle(buffer_size=10000, reshuffle_each_iteration=True)
-      d = d.repeat()
+    # if is_training:
+    #   d = d.shuffle(buffer_size=10000, reshuffle_each_iteration=True)
+    #   d = d.repeat()
 
     d = d.padded_batch(batch_size, feature_shapes,
                        drop_remainder=True)  # For static shape
@@ -491,7 +492,7 @@ class MaskedLMLayer(tf.compat.v1.layers.Layer):
 
   @property
   def trainable_weights(self):
-    self._trainable_weights = (self.extra_layer +
+    self._trainable_weights = (self.extra_layer.trainable_weights +
                                self.norm_layer.trainable_weights +
                                [self.output_bias])
     return self._trainable_weights

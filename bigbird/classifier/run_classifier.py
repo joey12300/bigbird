@@ -334,7 +334,7 @@ class ClassifierLossLayer(tf.compat.v1.layers.Layer):
       self.w = tf.compat.v1.get_variable(
           name="kernel",
           shape=[last_dim, self.num_labels],
-          initializer=tf.keras.initializers.Constant(value=0.5))
+          initializer=self.initializer)
       
       self.initializer = None
       self._trainable_weights.append(self.w)
