@@ -129,7 +129,8 @@ class BertModel(tf.compat.v1.layers.Layer):
     # to the first token. We assume that this has been pre-trained
     pooled_output = self.pooler(first_token_tensor)
 
-    return sequence_output, pooled_output, qkv
+#    return sequence_output, pooled_output, qkv
+    return sequence_output, pooled_output
 
 
 class TransformerModel(tf.compat.v1.layers.Layer):

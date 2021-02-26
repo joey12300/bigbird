@@ -182,7 +182,7 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
     subtokens = tokenizer.tokenize(text)
     (subtokens, masked_lm_positions, masked_lm_ids,
      masked_lm_weights) = tf.compat.v1.py_func(
-         numpy_masking, [subtokens], [tf.int32, tf.int32, tf.int32, tf.float32],
+         numpy_masking, [subtokens, text], [tf.int32, tf.int32, tf.int32, tf.float32],
          stateful=False)
     features = {
         "input_ids": subtokens,
@@ -194,7 +194,7 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
     }
     return features
 
-  def numpy_masking(subtokens):
+  def numpy_masking(subtokens, text):
     # Find a random span in text
     end_pos = max_encoder_length - 2 + np.random.randint(
         max(1, len(subtokens) - max_encoder_length - 2))
@@ -210,7 +210,6 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
       # and we fall back to random masking.
       word_begins_pos = np.arange(len(subtokens), dtype=np.int32)
       word_begin_mark = np.logical_not(word_begin_mark)
-      print(subtokens, start_pos, end_pos, word_begin_mark)
     correct_start_pos = word_begins_pos[0]
     subtokens = subtokens[correct_start_pos:]
     word_begin_mark = word_begin_mark[correct_start_pos:]
@@ -298,13 +297,18 @@ def input_fn_builder(data_dir, vocab_model_file, masked_lm_prob,
       # else:
       #   d = tf.data.TFRecordDataset(input_files)
 
+    # if preprocessed_data:
+    #   d = d.map(_decode_record,
+    #             num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # else:
+    #   d = d.map(do_masking,
+    #             num_parallel_calls=tf.data.experimental.AUTOTUNE)
     if preprocessed_data:
       d = d.map(_decode_record,
-                num_parallel_calls=tf.data.experimental.AUTOTUNE)
+                num_parallel_calls=1)
     else:
       d = d.map(do_masking,
-                num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
+                num_parallel_calls=1)
     # if is_training:
     #   d = d.shuffle(buffer_size=10000, reshuffle_each_iteration=True)
     #   d = d.repeat()
@@ -531,7 +535,7 @@ class MaskedLMLayer(tf.compat.v1.layers.Layer):
     else:
       loss = tf.constant(0.0)
 
-    return loss, log_probs
+    return loss, log_probs#, per_example_loss
 
 
 class NSPLayer(tf.compat.v1.layers.Layer):

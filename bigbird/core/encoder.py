@@ -303,8 +303,8 @@ class PostnormEncoderLayer(tf.compat.v1.layers.Layer):
         attention_output = utils.dropout(attention_output,
                                          self.hidden_dropout_prob,
                                          training)
-        #attention_output = self.first_layer_norm(attention_output + layer_input)
-        attention_output = attention_output + layer_input
+        attention_output = self.first_layer_norm(attention_output + layer_input)
+        #attention_output = attention_output + layer_input
 
     # The activation is only applied to the "intermediate" hidden layer.
     with tf.compat.v1.variable_scope("intermediate"):
@@ -316,8 +316,8 @@ class PostnormEncoderLayer(tf.compat.v1.layers.Layer):
       layer_output = utils.dropout(layer_output,
                                    self.hidden_dropout_prob,
                                    training)
-      #layer_output = self.second_layer_norm(layer_output + attention_output)
-      layer_output = attention_output + layer_output
+      layer_output = self.second_layer_norm(layer_output + attention_output)
+      #layer_output = attention_output + layer_output
     return layer_output, qkv
 
 
@@ -415,8 +415,8 @@ class EncoderStack(tf.compat.v1.layers.Layer):
     # if self.params["use_gradient_checkpointing"]:
     #   encoder_layer = recompute_gradient(encoder_layer)
 
-    # if self.params["norm_type"] == "postnorm":
-    #   encoder_inputs = self.layer_norm(encoder_inputs)
+    if self.params["norm_type"] == "postnorm":
+      encoder_inputs = self.layer_norm(encoder_inputs)
 
     layer_output = encoder_inputs
     for layer in self.encoder_layers:
@@ -424,7 +424,7 @@ class EncoderStack(tf.compat.v1.layers.Layer):
           layer_output, attention_mask, band_mask,
           encoder_from_mask, encoder_to_mask, blocked_encoder_mask, training)
 
-    # if self.params["norm_type"] == "prenorm":
-    #   layer_output = self.layer_norm(layer_output)
+    if self.params["norm_type"] == "prenorm":
+      layer_output = self.layer_norm(layer_output)
 
     return layer_output,qkv
