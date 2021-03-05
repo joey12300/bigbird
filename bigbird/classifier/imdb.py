@@ -54,8 +54,7 @@ dataset = train_input_fn({'batch_size': 2})
 for ex in dataset.take(1):
   loss, log_probs, grads = fwd_bwd(ex[0], ex[1])
   print('Loss: ', loss.numpy(), flush=True)
-
-ckpt_path = '/root/projects/bigbird/ckpt/bigbird-transformer/pretrain/bigbr_base/model.ckpt-0'
+ckpt_path = 'gs://bigbird-transformer/pretrain/bigbr_base/model.ckpt-0'
 ckpt_reader = tf.compat.v1.train.NewCheckpointReader(ckpt_path)
 model.set_weights([ckpt_reader.get_tensor(v.name[:-2]) for v in tqdm(model.trainable_weights, position=0)])
 
