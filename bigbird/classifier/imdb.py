@@ -17,10 +17,6 @@ tf.enable_v2_behavior()
 
 FLAGS.data_dir = "tfds://imdb_reviews/plain_text"
 FLAGS.attention_type = "block_sparse"
-FLAGS.max_encoder_length = 3072  # 4096 on 16GB GPUs like V100, on free colab only lower memory GPU like T4 is available
-FLAGS.learning_rate = 1e-5
-FLAGS.num_train_steps = 1
-FLAGS.num_train_steps = 10000
 FLAGS.attention_probs_dropout_prob = 0.0
 FLAGS.hidden_dropout_prob = 0.0
 FLAGS.vocab_model_file = "gpt2"
@@ -48,7 +44,7 @@ train_input_fn = run_classifier.input_fn_builder(
         max_encoder_length=FLAGS.max_encoder_length,
         substitute_newline=FLAGS.substitute_newline,
         is_training=True)
-dataset = train_input_fn({'batch_size': 2})
+dataset = train_input_fn({'batch_size': FLAGS.train_batch_size})
 
 # inspect at a few examples
 for ex in dataset.take(1):
@@ -85,7 +81,7 @@ eval_input_fn = run_classifier.input_fn_builder(
         max_encoder_length=FLAGS.max_encoder_length,
         substitute_newline=FLAGS.substitute_newline,
         is_training=False)
-eval_dataset = eval_input_fn({'batch_size': 2})
+eval_dataset = eval_input_fn({'batch_size': FLAGS.eval_batch_size})
 
 eval_loss = tf.keras.metrics.Mean(name='eval_loss')
 eval_accuracy = tf.keras.metrics.CategoricalAccuracy(name='eval_accuracy')
