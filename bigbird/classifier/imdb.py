@@ -22,6 +22,7 @@ FLAGS.hidden_dropout_prob = 0.0
 FLAGS.vocab_model_file = "gpt2"
 FLAGS.num_hidden_layers = 12
 
+
 bert_config = flags.as_dictionary()
 
 model = modeling.BertModel(bert_config)
@@ -50,7 +51,11 @@ dataset = train_input_fn({'batch_size': FLAGS.train_batch_size})
 for ex in dataset.take(1):
   loss, log_probs, grads = fwd_bwd(ex[0], ex[1])
   print('Loss: ', loss.numpy(), flush=True)
+
 ckpt_path = 'gs://bigbird-transformer/pretrain/bigbr_base/model.ckpt-0'
+if FLAGS.init_checkpoint is not None:
+    ckpt_path = FLAGS.init_checkpoint
+
 ckpt_reader = tf.compat.v1.train.NewCheckpointReader(ckpt_path)
 model.set_weights([ckpt_reader.get_tensor(v.name[:-2]) for v in tqdm(model.trainable_weights, position=0)])
 

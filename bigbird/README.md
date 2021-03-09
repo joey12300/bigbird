@@ -14,7 +14,7 @@ pip3 install -e .
 
 ```
 cd bigbird/pretrain
-python run_pretraining.py
+python run_pretraining.py --learning_rate 1e-5 --num_train_steps 100000 --train_batch_size 4
 ```
 
 重要参数如下：
@@ -23,12 +23,25 @@ python run_pretraining.py
 * learning_rate：学习率。默认1e-4
 * save_checkpoints_steps：checkpoint保存间隔，默认为1000。
 
+主要比较loss曲线图，观察收敛效果。
+
+
 # 运行分类脚本
 
 ```
 cd bigbird/classifier/
 python imdb.py --max_encoder_length 3072 --learning_rate 1e-5 --num_train_steps 10000 --train_batch_size 2 --eval_batch_size 2
 ```
+假如无法下载预训练模型，可以通过以下方式操作：
+
+```
+mkdir -p bigbird/ckpt
+gsutil cp -r gs://bigbird-transformer/pretrain/bigbr_base bigbird/ckpt/
+
+添加参数init_checkpoint（最好指定绝对路径），执行脚本：
+python imdb.py --max_encoder_length 3072 --learning_rate 1e-5 --num_train_steps 10000 --train_batch_size 2 --eval_batch_size 2 --init_checkpoint  bigbird/ckpt/bigbr_base/model.ckpt-0
+```
+
 
 重要参数如下：
 * train_batch_size：训练批大小。默认是8。
